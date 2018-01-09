@@ -43,6 +43,12 @@ ITERS = 200000 # How many iterations to train for
 LAMBDA = 10 # Gradient penalty lambda hyperparameter
 OUTPUT_DIM = 64*64*3 # Number of pixels in each image
 
+#Set up the graph for values to be fed in later
+z = tf.placeholder(tf.float32, [None, DIM], name = 'z') #DIM is the dimension of the generator distribution
+keep_prob = tf.placeholder(tf.float32, name = 'keep_prob')
+is_training = tf.placeholder(tf.bool, name = 'is_training')
+
+
 lib.print_model_settings(locals().copy())
 
 def GeneratorAndDiscriminator():
@@ -91,13 +97,13 @@ def LeakyReLULayer(name, n_in, n_out, inputs):
     output = lib.ops.linear.Linear(name+'.Linear', n_in, n_out, inputs, initialization='he')
     return LeakyReLU(output)
 
-def Normalize(name, axes, inputs):
+def Normalize(name, axes, inputs, is_training=True):
     if ('Discriminator' in name) and (MODE == 'wgan-gp'):
         if axes != [0,2,3]:
             raise Exception('Layernorm over non-standard axes is unsupported')
         return lib.ops.layernorm.Layernorm(name,[1,2,3],inputs)
     else:
-        return lib.ops.batchnorm.Batchnorm(name,axes,inputs,fused=True)
+        return lib.ops.batchnorm.Batchnorm(name,axes,inputs,is_training=is_training, fused=True)
 
 def pixcnn_gated_nonlinearity(a, b):
     return tf.sigmoid(a) * tf.tanh(b)
@@ -129,7 +135,7 @@ def UpsampleConv(name, input_dim, output_dim, filter_size, inputs, he_init=True,
     output = tf.transpose(output, [0,3,1,2])
     output = lib.ops.conv2d.Conv2D(name, input_dim, output_dim, filter_size, output, he_init=he_init, biases=biases)
     return output
-
+'''
 def BottleneckResidualBlock(name, input_dim, output_dim, filter_size, inputs, resample=None, he_init=True):
     """
     resample: None, 'down', or 'up'
@@ -166,11 +172,11 @@ def BottleneckResidualBlock(name, input_dim, output_dim, filter_size, inputs, re
     output = conv_1b(name+'.Conv1B', filter_size=filter_size, inputs=output, he_init=he_init)
     output = tf.nn.relu(output)
     output = conv_2(name+'.Conv2', filter_size=1, inputs=output, he_init=he_init, biases=False)
-    output = Normalize(name+'.BN', [0,2,3], output)
+    output = Normalize(name+'.BN', [0,2,3], output, )
 
     return shortcut + (0.3*output)
-
-def ResidualBlock(name, input_dim, output_dim, filter_size, inputs, resample=None, he_init=True):
+'''
+def ResidualBlock(name, input_dim, output_dim, filter_size, inputs, resample=None, he_init=True, is_training=True):
     """
     resample: None, 'down', or 'up'
     """
@@ -199,10 +205,10 @@ def ResidualBlock(name, input_dim, output_dim, filter_size, inputs, resample=Non
                                  he_init=False, biases=True, inputs=inputs)
 
     output = inputs
-    output = Normalize(name+'.BN1', [0,2,3], output)
+    output = Normalize(name+'.BN1', [0,2,3], output, is_training)
     output = tf.nn.relu(output)
     output = conv_1(name+'.Conv1', filter_size=filter_size, inputs=output, he_init=he_init, biases=False)
-    output = Normalize(name+'.BN2', [0,2,3], output)
+    output = Normalize(name+'.BN2', [0,2,3], output, is_training)
     output = tf.nn.relu(output)
     output = conv_2(name+'.Conv2', filter_size=filter_size, inputs=output, he_init=he_init)
 
@@ -212,25 +218,31 @@ def ResidualBlock(name, input_dim, output_dim, filter_size, inputs, resample=Non
 # ! Generators
 
 #CRG Generator for 64x64 imagenet images and wgan-gp
-def GoodGenerator(n_samples, noise=None, dim=DIM, nonlinearity=tf.nn.relu):
+def GoodGenerator(n_samples, noise=None, dim=DIM, nonlinearity=tf.nn.relu, is_training=True):
     if noise is None:
         noise = tf.random_normal([n_samples, 128])
 
     output = lib.ops.linear.Linear('Generator.Input', 128, 4*4*8*dim, noise)
     output = tf.reshape(output, [-1, 8*dim, 4, 4])
 
+    #ResidualBlock has a normalize component, so need to pass in is_training
     output = ResidualBlock('Generator.Res1', 8*dim, 8*dim, 3, output, resample='up')
     output = ResidualBlock('Generator.Res2', 8*dim, 4*dim, 3, output, resample='up')
     output = ResidualBlock('Generator.Res3', 4*dim, 2*dim, 3, output, resample='up')
     output = ResidualBlock('Generator.Res4', 2*dim, 1*dim, 3, output, resample='up')
 
-    output = Normalize('Generator.OutputN', [0,2,3], output)
+#    output = ResidualBlock('Generator.Res1', 8*dim, 8*dim, 3, output, resample='up', is_training=is_training)
+#    output = ResidualBlock('Generator.Res2', 8*dim, 4*dim, 3, output, resample='up', is_training=is_training)
+#    output = ResidualBlock('Generator.Res3', 4*dim, 2*dim, 3, output, resample='up', is_training=is_training)
+#    output = ResidualBlock('Generator.Res4', 2*dim, 1*dim, 3, output, resample='up', is_training=is_training)
+
+    output = Normalize('Generator.OutputN', [0,2,3], output, is_training)
     output = tf.nn.relu(output)
     output = lib.ops.conv2d.Conv2D('Generator.Output', 1*dim, 3, 3, output)
     output = tf.tanh(output)
 
     return tf.reshape(output, [-1, OUTPUT_DIM])
-
+'''
 def FCGenerator(n_samples, noise=None, FC_DIM=512):
     if noise is None:
         noise = tf.random_normal([n_samples, 128])
@@ -378,6 +390,8 @@ def MultiplicativeDCGANGenerator(n_samples, noise=None, dim=DIM, bn=True):
     return tf.reshape(output, [-1, OUTPUT_DIM])
 
 # ! Discriminators
+'''
+
 
 #CRG used for imagenet with ResidualBlocks!
 def GoodDiscriminator(inputs, dim=DIM):
@@ -393,7 +407,7 @@ def GoodDiscriminator(inputs, dim=DIM):
     output = lib.ops.linear.Linear('Discriminator.Output', 4*4*8*dim, 1, output)
 
     return tf.reshape(output, [-1])
-
+'''
 def MultiplicativeDCGANDiscriminator(inputs, dim=DIM, bn=True):
     output = tf.reshape(inputs, [-1, 3, 64, 64])
 
@@ -493,7 +507,7 @@ def DCGANDiscriminator(inputs, dim=DIM, bn=True, nonlinearity=LeakyReLU):
     lib.ops.linear.unset_weights_stdev()
 
     return tf.reshape(output, [-1])
-
+'''
 Generator, Discriminator = GeneratorAndDiscriminator()
 
 with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
@@ -509,7 +523,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         with tf.device(device):
 
             real_data = tf.reshape(2*((tf.cast(real_data_conv, tf.float32)/255.)-.5), [BATCH_SIZE/len(DEVICES), OUTPUT_DIM])
-            fake_data = Generator(BATCH_SIZE/len(DEVICES))
+		# fake_data generates a random 128 vector
+            fake_data = Generator(BATCH_SIZE/len(DEVICES), is_training=True)
 
             disc_real = Discriminator(real_data)
             disc_fake = Discriminator(fake_data)
@@ -574,18 +589,18 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         clip_disc_weights = tf.group(*clip_ops)
 
     elif MODE == 'wgan-gp':
-#CRG        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0., beta2=0.9).minimize(gen_cost,
-#CRG                                          var_list=lib.params_with_name('Generator'), colocate_gradients_with_ops=True)
-#CRG        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0., beta2=0.9).minimize(disc_cost,
-#CRG                                           var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
+        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0., beta2=0.9).minimize(gen_cost,
+                                          var_list=lib.params_with_name('Generator'), colocate_gradients_with_ops=True)
+        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0., beta2=0.9).minimize(disc_cost,
+                                           var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
 #CRG beta1 was not set to 0.5
-        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(gen_cost,
+        #gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(gen_cost,
 
 #        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(gen_cost,
-                                          var_list=lib.params_with_name('Generator'), colocate_gradients_with_ops=True)
-        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(disc_cost,
+#                                          var_list=lib.params_with_name('Generator'), colocate_gradients_with_ops=True)
+        #disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(disc_cost,
         #disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(disc_cost,
-                                           var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
+ #                                          var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
 
 
     elif MODE == 'dcgan':
@@ -604,22 +619,27 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         raise Exception()
 
     # For generating samples
+    #tf.random_normal([n_samples, 128])
     fixed_noise = tf.constant(np.random.normal(size=(BATCH_SIZE, 128)).astype('float32'))
+    #fixed_noise = np.random.normal(size=(BATCH_SIZE, 128)).astype('float32')
+    n_samples = BATCH_SIZE / len(DEVICES)
     all_fixed_noise_samples = []
+    #sample_data = Generator(n_samples, noise=fixed_noise, is_training=False)
     for device_index, device in enumerate(DEVICES):
         n_samples = BATCH_SIZE / len(DEVICES)
-        all_fixed_noise_samples.append(Generator(n_samples, noise=fixed_noise[device_index*n_samples:(device_index+1)*n_samples]))
+        all_fixed_noise_samples.append(Generator(n_samples, noise=fixed_noise[device_index*n_samples:(device_index+1)*n_samples]))#, is_training=False))   
     if tf.__version__.startswith('1.'):
-        all_fixed_noise_samples = tf.concat(all_fixed_noise_samples, axis=0)
+        all_fixed_noise_samples=tf.concat(all_fixed_noise_samples, axis=0)
     else:
-        all_fixed_noise_samples = tf.concat(0, all_fixed_noise_samples)
+        all_fixed_noise_samples=tf.concat(0, all_fixed_noise_samples)
+
     def generate_image(iteration):
         samples = session.run(all_fixed_noise_samples)
         samples = ((samples+1.)*(255.99/2)).astype('int32')
 #CRG        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'samples_{}.png'.format(iteration))
         #lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), '/home/crgerst/src/improved_wgan_training/samples/imagenet/samples_{}.png'.format(iteration))
-        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), SAVE_DIR + PROJ + '{}.png'.format(iteration))
-
+        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), SAVE_DIR + PROJ + '{}.png'.format(iteration))        
+    
     # Dataset iterator
     train_gen, dev_gen = lib.small_imagenet.load(BATCH_SIZE, data_dir=DATA_DIR)
 
@@ -657,6 +677,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             disc_iters = CRITIC_ITERS
         for i in xrange(disc_iters):
             _data = gen.next()
+		#CRG added is_training parameter - removed because of critic
             _disc_cost, _ = session.run([disc_cost, disc_train_op], feed_dict={all_real_data_conv: _data})
             if MODE == 'wgan':
                 _ = session.run([clip_disc_weights])
@@ -668,6 +689,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             t = time.time()
             dev_disc_costs = []
             for (images,) in dev_gen():
+		# CRG added is_training parameter
                 _dev_disc_cost = session.run(disc_cost, feed_dict={all_real_data_conv: images}) 
                 dev_disc_costs.append(_dev_disc_cost)
             lib.plot.plot(SAVE_DIR + PROJ + 'dev disc cost', np.mean(dev_disc_costs))
@@ -676,5 +698,6 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
         if (iteration < 5) or (iteration % 200 == 199):
             lib.plot.flush()
+
 
         lib.plot.tick()
