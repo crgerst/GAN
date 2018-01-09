@@ -20,7 +20,16 @@ import tflib.plot
 
 # Download 64x64 ImageNet at http://image-net.org/small/download.php and
 # fill in the path to the extracted files here!
-DATA_DIR = '/home/crgerst/src/data/imagenet'
+#DATA_DIR = '/home/crgerst/src/data/imagenet'
+# CRG Try CelebA now
+DATA_DIR = '/home/crgerst/src/data/CelebA/cropped_CelebA'
+SAVE_DIR = '/home/crgerst/src/GAN/samples/CelebA/'
+PROJ = 'wgangp_test_CelebA/'
+
+#create the directory if doesn't exist
+if not os.path.exists(SAVE_DIR + PROJ):
+    os.makedirs(SAVE_DIR + PROJ)
+
 if len(DATA_DIR) == 0:
     raise Exception('Please specify path to data directory in gan_64x64.py!')
 
@@ -46,7 +55,7 @@ def GeneratorAndDiscriminator():
     return GoodGenerator, GoodDiscriminator
 
     # Baseline (G: DCGAN, D: DCGAN)
-    # return DCGANGenerator, DCGANDiscriminator
+    #return DCGANGenerator, DCGANDiscriminator
 
     # No BN and constant number of filts in G
     # return WGANPaper_CrippledDCGANGenerator, DCGANDiscriminator
@@ -570,9 +579,12 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 #CRG        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0., beta2=0.9).minimize(disc_cost,
 #CRG                                           var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
 #CRG beta1 was not set to 0.5
-        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(gen_cost,
+        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(gen_cost,
+
+#        gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(gen_cost,
                                           var_list=lib.params_with_name('Generator'), colocate_gradients_with_ops=True)
-        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(disc_cost,
+        disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(disc_cost,
+        #disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(disc_cost,
                                            var_list=lib.params_with_name('Discriminator.'), colocate_gradients_with_ops=True)
 
 
@@ -605,7 +617,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         samples = session.run(all_fixed_noise_samples)
         samples = ((samples+1.)*(255.99/2)).astype('int32')
 #CRG        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'samples_{}.png'.format(iteration))
-        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), '/home/crgerst/src/improved_wgan_training/samples/imagenet/samples_{}.png'.format(iteration))
+        #lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), '/home/crgerst/src/improved_wgan_training/samples/imagenet/samples_{}.png'.format(iteration))
+        lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), SAVE_DIR + PROJ + '{}.png'.format(iteration))
 
     # Dataset iterator
     train_gen, dev_gen = lib.small_imagenet.load(BATCH_SIZE, data_dir=DATA_DIR)
@@ -620,7 +633,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
     _x_r = session.run(real_data, feed_dict={real_data_conv: _x[:BATCH_SIZE/N_GPUS]})
     _x_r = ((_x_r+1.)*(255.99/2)).astype('int32')
 #CRG    lib.save_images.save_images(_x_r.reshape((BATCH_SIZE/N_GPUS, 3, 64, 64)), 'samples_groundtruth.png')
-    lib.save_images.save_images(_x_r.reshape((BATCH_SIZE/N_GPUS, 3, 64, 64)), '/home/crgerst/src/improved_wgan_training/samples/imagenet/samples_groundtruth.png')
+#CRG   lib.save_images.save_images(_x_r.reshape((BATCH_SIZE/N_GPUS, 3, 64, 64)), '/home/crgerst/src/improved_wgan_training/samples/imagenet/samples_groundtruth.png')
+    lib.save_images.save_images(_x_r.reshape((BATCH_SIZE/N_GPUS, 3, 64, 64)), SAVE_DIR + PROJ + 'groundtruth.png')
 
 
     # Train loop
@@ -647,8 +661,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             if MODE == 'wgan':
                 _ = session.run([clip_disc_weights])
 
-        lib.plot.plot('train disc cost', _disc_cost)
-        lib.plot.plot('time', time.time() - start_time)
+        lib.plot.plot(SAVE_DIR + PROJ + 'train disc cost', _disc_cost)
+        lib.plot.plot(SAVE_DIR + PROJ + 'time', time.time() - start_time)
 
         if iteration % 200 == 199:
             t = time.time()
@@ -656,7 +670,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             for (images,) in dev_gen():
                 _dev_disc_cost = session.run(disc_cost, feed_dict={all_real_data_conv: images}) 
                 dev_disc_costs.append(_dev_disc_cost)
-            lib.plot.plot('dev disc cost', np.mean(dev_disc_costs))
+            lib.plot.plot(SAVE_DIR + PROJ + 'dev disc cost', np.mean(dev_disc_costs))
 
             generate_image(iteration)
 
